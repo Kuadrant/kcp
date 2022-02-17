@@ -146,23 +146,17 @@ func (c *Controller) applyToDownstream(ctx context.Context, gvr schema.GroupVers
 
 	obj = obj.DeepCopy()
 	obj.SetUID("")
+	obj.SetCreationTimestamp(metav1.Time{})
 	obj.SetResourceVersion("")
 	obj.SetNamespace(namespace)
 	obj.SetManagedFields(nil)
+	// Strip owner references, to avoid orphaning by broken references,
+	// and make sure cascading deletion is only performed once upstream.
+	obj.SetOwnerReferences(nil)
+	// Strip finalizers to avoid the deletion of the downstream resource from being blocked.
+	obj.SetFinalizers(nil)
 
-	ownedByLabel := obj.GetLabels()["kcp.dev/owned-by"]
-	var ownerReferences []metav1.OwnerReference
-	for _, reference := range obj.GetOwnerReferences() {
-		if reference.Name == ownedByLabel {
-			continue
-		}
-		ownerReferences = append(ownerReferences, reference)
-	}
-	obj.SetOwnerReferences(ownerReferences)
-
-	// TODO: wipe things like finalizers, owner-refs and any other life-cycle fields. The life-cycle
-	//       should exclusively owned by the syncer. Let's not some Kubernetes magic interfere with it.
-
+	// Marshalling the unstructured object is good enough as SSA patch
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return err
