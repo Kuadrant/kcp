@@ -86,7 +86,13 @@ func (c *Controller) deleteFromDownstream(ctx context.Context, gvr schema.GroupV
 	// TODO: get UID of just-deleted object and pass it as a precondition on this delete.
 	// This would avoid races where an object is deleted and another object with the same name is created immediately after.
 
-	return c.toClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	// Use foreground propagation so that the deletion cascades the entire ownership graph,
+	// and the deletionTimestamp field is set, so that the object remains in the key-value
+	// store until all its finalizers are removed.
+	propagationPolicy := metav1.DeletePropagationForeground
+	return c.toClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	})
 }
 
 const namespaceLocatorAnnotation = "kcp.dev/namespace-locator"
