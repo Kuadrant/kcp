@@ -156,6 +156,9 @@ func (c *Controller) applyToDownstream(ctx context.Context, gvr schema.GroupVers
 	obj.SetResourceVersion("")
 	obj.SetNamespace(namespace)
 	obj.SetManagedFields(nil)
+	// Deletion fields are immutable and set by the downstream API server
+	obj.SetDeletionTimestamp(nil)
+	obj.SetDeletionGracePeriodSeconds(nil)
 	// Strip owner references, to avoid orphaning by broken references,
 	// and make sure cascading deletion is only performed once upstream.
 	obj.SetOwnerReferences(nil)
