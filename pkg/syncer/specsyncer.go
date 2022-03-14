@@ -86,7 +86,13 @@ func (c *Controller) deleteFromDownstream(ctx context.Context, gvr schema.GroupV
 	// TODO: get UID of just-deleted object and pass it as a precondition on this delete.
 	// This would avoid races where an object is deleted and another object with the same name is created immediately after.
 
-	return c.toClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	// Use foreground propagation so that the deletion cascades the entire ownership graph,
+	// and the deletionTimestamp field is set, so that the object remains in the key-value
+	// store until all its finalizers are removed.
+	propagationPolicy := metav1.DeletePropagationForeground
+	return c.toClient.Resource(gvr).Namespace(namespace).Delete(ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	})
 }
 
 const namespaceLocatorAnnotation = "kcp.dev/namespace-locator"
@@ -146,23 +152,20 @@ func (c *Controller) applyToDownstream(ctx context.Context, gvr schema.GroupVers
 
 	obj = obj.DeepCopy()
 	obj.SetUID("")
+	obj.SetCreationTimestamp(metav1.Time{})
 	obj.SetResourceVersion("")
 	obj.SetNamespace(namespace)
 	obj.SetManagedFields(nil)
+	// Deletion fields are immutable and set by the downstream API server
+	obj.SetDeletionTimestamp(nil)
+	obj.SetDeletionGracePeriodSeconds(nil)
+	// Strip owner references, to avoid orphaning by broken references,
+	// and make sure cascading deletion is only performed once upstream.
+	obj.SetOwnerReferences(nil)
+	// Strip finalizers to avoid the deletion of the downstream resource from being blocked.
+	obj.SetFinalizers(nil)
 
-	ownedByLabel := obj.GetLabels()["kcp.dev/owned-by"]
-	var ownerReferences []metav1.OwnerReference
-	for _, reference := range obj.GetOwnerReferences() {
-		if reference.Name == ownedByLabel {
-			continue
-		}
-		ownerReferences = append(ownerReferences, reference)
-	}
-	obj.SetOwnerReferences(ownerReferences)
-
-	// TODO: wipe things like finalizers, owner-refs and any other life-cycle fields. The life-cycle
-	//       should exclusively owned by the syncer. Let's not some Kubernetes magic interfere with it.
-
+	// Marshalling the unstructured object is good enough as SSA patch
 	data, err := json.Marshal(obj)
 	if err != nil {
 		return err

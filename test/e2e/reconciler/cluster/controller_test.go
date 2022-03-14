@@ -133,8 +133,11 @@ func TestClusterController(t *testing.T) {
 				// TODO(ncdc): the expect code for cowboys currently expects the cowboy to exist. See if we can adjust it
 				// so we can reuse that here instead of polling.
 				require.Eventually(t, func() bool {
-					_, err := servers[sinkClusterName].client.Cowboys(targetNamespace).Get(ctx, cowboy.Name, metav1.GetOptions{})
-					return apierrors.IsNotFound(err)
+					got, err := servers[sinkClusterName].client.Cowboys(targetNamespace).Get(ctx, cowboy.Name, metav1.GetOptions{})
+					// We check whether the resource has been marked for deletion.
+					// This can be removed once the GC controller runs in KCP, or
+					// the fixture uses k8s compliant workload clusters.
+					return got.DeletionTimestamp != nil || apierrors.IsNotFound(err)
 				}, 30*time.Second, 100*time.Millisecond, "expected sink cowboy to be deleted")
 			},
 		},
